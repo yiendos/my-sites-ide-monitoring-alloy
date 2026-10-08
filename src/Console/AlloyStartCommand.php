@@ -69,7 +69,10 @@ class AlloyStartCommand extends Command
             return Command::FAILURE;
         }
 
-        $io->success('Alloy started - send OpenTelemetry to http://alloy:4318 inside the IDE; UI at http://localhost:' . (getenv('ALLOY_PORT') ?: '12345'));
+        $io->success([
+            'Alloy started - UI at http://localhost:' . (getenv('ALLOY_PORT') ?: '12345'),
+            'Apps in the IDE send OpenTelemetry to http://alloy:4318 (no host port)',
+        ]);
 
         return Command::SUCCESS;
     }
