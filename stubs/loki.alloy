@@ -1,0 +1,52 @@
+
+// OTLP logs -> Loki's OTLP endpoint, which keeps trace_id as structured metadata
+otelcol.exporter.otlphttp "loki" {
+  client {
+    endpoint = "http://loki:3100/otlp"
+  }
+}
+
+// Container logs -> Loki: every container on the IDE's network, labelled by container,
+// compose service and project
+discovery.docker "ide" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+
+  filter {
+    name   = "network"
+    values = ["__NETWORK__"]
+  }
+}
+
+discovery.relabel "ide" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.+)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+}
+
+loki.source.docker "ide" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.ide.targets
+  relabel_rules = discovery.relabel.ide.rules
+  forward_to    = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

@@ -1,0 +1,26 @@
+
+// OpenTelemetry from your apps: OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318 (or alloy:4317 for gRPC).
+// Each signal goes on to its plugin, and is dropped when that plugin isn't installed.
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    traces  = [__TRACES__]
+    logs    = [__LOGS__]
+    metrics = [__METRICS__]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
+    traces  = [__TRACES_OUT__]
+    logs    = [__LOGS_OUT__]
+    metrics = [__METRICS_OUT__]
+  }
+}
