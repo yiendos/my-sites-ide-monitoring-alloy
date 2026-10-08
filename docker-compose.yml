@@ -1,0 +1,39 @@
+services:
+    alloy:
+        image: ${NAMESPACE}_alloy:latest
+        build:
+            context: .
+            dockerfile: Dockerfile
+        # the config monitoring:alloy-start writes, and Alloy's own state (log positions, WAL), live in
+        # storage/plugins/alloy/ ("storage": true in composer.json mounts it at /storage)
+        command:
+            - run
+            - /storage/conf/config.alloy
+            - --storage.path=/storage/data
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --disable-reporting
+        ports:
+            # Alloy's UI - each pipeline's components and their health
+            - "${ALLOY_PORT:-12345}:12345"
+        # no OTLP host ports - apps in the IDE send to alloy:4317 (gRPC) / alloy:4318 (HTTP)
+        # read-only Docker socket for container logs - alloy joins the group that owns it
+        # (root under Docker Desktop; monitoring:alloy-start finds the docker group on Linux)
+        group_add:
+            - "${DOCKER_SOCKET_GID:-0}"
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+        labels:
+            # scraped by the prometheus plugin, when it's installed
+            prometheus.io/scrape: "true"
+            prometheus.io/port: "12345"
+        # Docker's own copy of the container's output, capped (json-file only rotates by size) - the
+        # searchable history is in Loki, for its retention
+        logging:
+            driver: json-file
+            options:
+                max-size: "10m"
+                max-file: "3"
+        networks:
+            - my-sites-ide
+
+    # opt-in: run monitoring:alloy-start (it writes the config first), or add alloy to APP
