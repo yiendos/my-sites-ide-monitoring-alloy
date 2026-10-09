@@ -10,7 +10,7 @@ namespace Yiendos\MySitesIde\Monitoring\Alloy;
  *
  *   tempo       traces
  *   loki        OTLP logs, and the IDE's container logs (from the Docker socket)
- *   prometheus  OTLP metrics
+ *   prometheus  OTLP metrics, and every IDE container's metrics (cAdvisor)
  */
 final class Config
 {
@@ -22,8 +22,9 @@ final class Config
     /**
      * @param array<string, bool> $installed compose service => whether a plugin provides it
      * @param string $network the IDE's Docker network, whose containers' logs are collected
+     * @param string $project the IDE's compose project, whose containers' metrics are collected
      */
-    public function __construct(private array $installed, private string $network)
+    public function __construct(private array $installed, private string $network, private string $project)
     {
     }
 
@@ -37,6 +38,7 @@ final class Config
         return new self(
             array_map(Ide::installed(...), array_combine(self::DESTINATIONS, self::DESTINATIONS)),
             Ide::network(),
+            Ide::project(),
         );
     }
 
@@ -50,7 +52,7 @@ final class Config
         return array_values(array_filter([
             $this->has('tempo') ? 'traces -> tempo' : null,
             $this->has('loki') ? 'OTLP logs and container logs -> loki' : null,
-            $this->has('prometheus') ? 'metrics -> prometheus' : null,
+            $this->has('prometheus') ? 'OTLP metrics and container metrics -> prometheus' : null,
         ]));
     }
 
@@ -74,7 +76,10 @@ final class Config
 
         foreach (self::DESTINATIONS as $service) {
             if ($this->has($service)) {
-                $config .= str_replace('__NETWORK__', $this->network, $this->stub($service));
+                $config .= strtr($this->stub($service), [
+                    '__NETWORK__' => $this->network,
+                    '__PROJECT__' => $this->project,
+                ]);
             }
         }
 

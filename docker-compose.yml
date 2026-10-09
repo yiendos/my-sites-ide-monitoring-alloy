@@ -20,8 +20,14 @@ services:
         # (root under Docker Desktop; monitoring:alloy-start finds the docker group on Linux)
         group_add:
             - "${DOCKER_SOCKET_GID:-0}"
+        # container network metrics (cAdvisor) are read from each container's /proc/<pid>/net/dev,
+        # so alloy needs to see the host's processes
+        pid: host
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock:ro
+            # container metrics (cAdvisor): containerd to find the containers, /sys for their cgroups
+            - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+            - /sys:/sys:ro
         labels:
             # scraped by the prometheus plugin, when it's installed
             prometheus.io/scrape: "true"

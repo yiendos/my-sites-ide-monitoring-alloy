@@ -3,7 +3,8 @@
 [Grafana Alloy](https://grafana.com/oss/alloy/) for [my-sites-ide](https://github.com/yiendos/my-sites-ide):
 the monitoring stack's collector. It ships every IDE container's logs to Loki, and is the one
 address your apps send OpenTelemetry to - `alloy:4318` - passing traces to Tempo, logs to Loki and
-metrics to Prometheus. Its UI is at http://localhost:12345.
+metrics to Prometheus. With Prometheus installed it also collects every IDE container's CPU, memory,
+network and block IO. Its UI is at http://localhost:12345.
 
 Written for: developers running sites in my-sites-ide who want their sites' logs and telemetry
 collected without wiring each app to each backend.
@@ -12,6 +13,7 @@ collected without wiring each app to each backend.
 
 - [Installation](#installation)
 - [Pipelines](#pipelines)
+- [Container metrics](#container-metrics)
 - [Sending OpenTelemetry from your apps](#sending-opentelemetry-from-your-apps)
 - [Command reference](#command-reference)
 - [Configuration](#configuration)
@@ -50,7 +52,7 @@ config first.
 | always | OTLP receiver on `alloy:4317` (gRPC) and `alloy:4318` (HTTP), batched |
 | [tempo](https://github.com/yiendos/my-sites-ide-monitoring-tempo) | OTLP traces -> `tempo:4317` |
 | [loki](https://github.com/yiendos/my-sites-ide-monitoring-loki) | OTLP logs -> Loki's OTLP endpoint (keeping `trace_id`), and every container on the IDE's network -> Loki, labelled `service_name`, `container` and `compose_project` |
-| [prometheus](https://github.com/yiendos/my-sites-ide-monitoring-prometheus) | OTLP metrics -> Prometheus's remote-write receiver |
+| [prometheus](https://github.com/yiendos/my-sites-ide-monitoring-prometheus) | OTLP metrics -> Prometheus's remote-write receiver, and every IDE container's resource metrics (see [Container metrics](#container-metrics)) |
 
 A signal with nowhere to go is dropped, so apps can point at `alloy:4318` whatever's installed.
 Run `monitoring:alloy-start` again after adding or removing a monitoring plugin.
@@ -58,6 +60,26 @@ Run `monitoring:alloy-start` again after adding or removing a monitoring plugin.
 Container logs come from the Docker socket, limited to the IDE's own network
 (`<project>_my-sites-ide`, read from `docker compose config`), so a second IDE checkout's containers
 aren't collected.
+
+## Container metrics
+
+With the prometheus plugin installed, Alloy runs [cAdvisor](https://github.com/google/cadvisor)
+(built in, `prometheus.exporter.cadvisor`) and remote-writes its metrics to Prometheus every 15
+seconds - for **every** container in the IDE, whether or not it carries `prometheus.io/scrape`
+labels. That's CPU, memory, network and block IO, read from the containers' cgroups and `/proc`:
+
+```
+sum by (service_name) (rate(container_cpu_usage_seconds_total{job="integrations/cadvisor"}[1m]))
+container_memory_working_set_bytes{service_name="mysql"}
+```
+
+Series carry `service_name`, `container` and `compose_project`, like the container logs, alongside cAdvisor's
+own `name` (the container) and `image`. They're limited to the IDE's compose project (read from
+`docker compose config`), so a second IDE checkout's containers aren't collected. Disk usage isn't
+collected - it walks each container's filesystem, which the non-root `alloy` user can't read.
+
+These are resource metrics only. Application metrics - MySQL queries, nginx connections - need that
+service's own exporter, labelled for the prometheus plugin to scrape.
 
 ## Sending OpenTelemetry from your apps
 
@@ -98,10 +120,11 @@ copies them in, commented out.
 | `NAMESPACE` (root `.env`) | the image name, `${NAMESPACE}_alloy` |
 | `IDE_ROOT` (set by the CLI and `_dev/cache/ide.env`) | finding the plugin list and storage |
 | `_dev/cache/plugins.php` | which monitoring plugins are installed |
-| `docker compose config` | the IDE network's Docker name |
+| `docker compose config` | the IDE network's Docker name and the compose project name |
 | `storage/plugins/alloy/` (`"storage": true`) | the config, log positions and WAL |
 | the `my-sites-ide` network | receiving OTLP, sending to Tempo, Loki and Prometheus |
 | the Docker socket, read-only | finding containers and reading their logs |
+| the containerd socket and `/sys` (read-only), and the host's processes (`pid: host`) | container metrics - containerd to find the containers, `/sys` for their cgroups, each container's `/proc` for its network |
 
 The container carries `prometheus.io/scrape` labels, so the prometheus plugin scrapes Alloy's own
 metrics.
@@ -116,13 +139,23 @@ joins the socket's group: root (`0`) under Docker Desktop, the host's `docker` g
 which `monitoring:alloy-start` looks up. If yours differs, set `DOCKER_SOCKET_GID` to the socket's
 group id (`stat -c %g /var/run/docker.sock`) and start it again.
 
+**No container metrics, or only one `id="/"` series.** cAdvisor couldn't find the containers:
+check `/run/containerd/containerd.sock` exists on the Docker host (Docker Desktop has it in its VM)
+and that Alloy can read it - its logs say "Registration of the docker container factory failed"
+when it can't.
+
 **A new container's logs are missing.** Alloy looks for containers every 15 seconds, and only on
 the IDE's network.
 
 ## Known gaps
 
-- Read-only or not, access to the Docker socket is root-equivalent on the Docker host. Fine for a
+- Read-only or not, access to the Docker socket is root-equivalent on the Docker host, and Alloy
+  shares the host's process namespace (`pid: host`, for container network metrics). Fine for a
   local IDE; don't run this anywhere shared.
+- Container metrics are only verified under Docker Desktop on macOS. On Linux hosts the containerd
+  socket is usually `root:root` 660, which the `alloy` user (in the Docker socket's group) can't
+  read - and where Docker doesn't use a system containerd, there's no socket at that path for
+  Docker to mount.
 - No OTLP host ports, so apps on the host can't send - only containers in the IDE.
 - On Linux hosts, `storage/plugins/alloy/` is created by your user while Alloy runs as uid 473, so it
   may not be able to write there. Docker Desktop on macOS maps ownership, so it isn't affected.

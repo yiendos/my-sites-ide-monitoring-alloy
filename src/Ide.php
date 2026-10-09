@@ -129,14 +129,42 @@ final class Ide
      */
     public static function network(): string
     {
-        $config = json_decode((string) shell_exec('docker compose config --format json 2>/dev/null'), true);
-
-        $name = $config['networks']['my-sites-ide']['name'] ?? null;
+        $name = self::compose()['networks']['my-sites-ide']['name'] ?? null;
 
         if (!is_string($name) || $name === '') {
             throw new RuntimeException('Could not read the my-sites-ide network from `docker compose config` - run this from the IDE root.');
         }
 
         return $name;
+    }
+
+    /**
+     * The IDE's compose project name, e.g. my-sites-ide (the IDE folder) -
+     * container metrics carry no network, so they're filtered on the
+     * project's com.docker.compose.project label instead
+     *
+     * @return string
+     */
+    public static function project(): string
+    {
+        $name = self::compose()['name'] ?? null;
+
+        if (!is_string($name) || $name === '') {
+            throw new RuntimeException('Could not read the compose project name from `docker compose config` - run this from the IDE root.');
+        }
+
+        return $name;
+    }
+
+    /**
+     * The IDE's resolved compose config, read once per command
+     *
+     * @return array<string, mixed>
+     */
+    private static function compose(): array
+    {
+        static $config = null;
+
+        return $config ??= (array) json_decode((string) shell_exec('docker compose config --format json 2>/dev/null'), true);
     }
 }
