@@ -1,0 +1,32 @@
+{
+    "name": "yiendos/my-sites-ide-monitoring-alloy",
+    "description": "Grafana Alloy collector for my-sites-ide - ships the IDE's container logs to Loki and takes your apps' OpenTelemetry on alloy:4318",
+    "type": "my-sites-ide-plugin",
+    "license": "MIT",
+    "keywords": ["my-sites-ide", "alloy", "opentelemetry", "otlp", "logs", "monitoring", "observability"],
+    "authors": [
+        {
+            "name": "Paul Yiend",
+            "email": "yiendos@sbmatrix.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Yiendos\\MySitesIde\\Monitoring\\Alloy\\": "src/"
+        }
+    },
+    "require": {
+        "php": "^8.2",
+        "symfony/console": "^7.3"
+    },
+    "extra": {
+        "my-sites-ide": {
+            "commands": "src/Console",
+            "compose": "docker-compose.yml",
+            "env": ".env",
+            "env-example": "env-example",
+            "services": ["alloy"],
+            "storage": true
+        }
+    }
+}

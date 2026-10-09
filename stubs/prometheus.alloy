@@ -1,0 +1,79 @@
+// OTLP metrics -> Prometheus, through its remote-write receiver
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}
+
+// Container metrics -> Prometheus: CPU, memory, network and block IO for every container, labelled
+// or not, read from the cgroups (/sys) and, for network, each container's /proc (pid: host) -
+// cAdvisor, built into Alloy. Disk usage ("disk") is off: it walks each container's filesystem,
+// which the non-root alloy user can't read.
+prometheus.exporter.cadvisor "ide" {
+  docker_host                  = "unix:///var/run/docker.sock"
+  containerd_host              = "/run/containerd/containerd.sock"
+  docker_only                  = true
+  store_container_labels       = false
+  allowlisted_container_labels = ["com.docker.compose.project", "com.docker.compose.service"]
+  disabled_metrics             = ["advtcp", "cpu_topology", "cpuset", "disk", "hugetlb", "memory_numa", "percpu", "process", "referenced_memory", "resctrl", "sched", "tcp", "udp"]
+}
+
+// every 15s, like the prometheus plugin's own scrapes (Alloy's default is 1m), stamped with the
+// scrape time - cAdvisor stamps machine_* with when Alloy started, which never moves on
+prometheus.scrape "cadvisor" {
+  targets          = prometheus.exporter.cadvisor.ide.targets
+  scrape_interval  = "15s"
+  honor_timestamps = false
+  forward_to       = [prometheus.relabel.cadvisor.receiver]
+}
+
+// cAdvisor sees every container on the Docker host - keep this IDE's (and the machine_* totals,
+// which dashboards divide by), and label them like the container logs (service_name, container,
+// compose_project), alongside cAdvisor's own name and image
+prometheus.relabel "cadvisor" {
+  forward_to = [prometheus.remote_write.default.receiver]
+
+  rule {
+    source_labels = ["__name__", "container_label_com_docker_compose_project"]
+    regex         = "machine_.*;.*|.*;__PROJECT__"
+    action        = "keep"
+  }
+
+  // every container lists the kernel's idle tunnel devices - only its real interfaces are kept
+  rule {
+    source_labels = ["interface"]
+    regex         = "(erspan|gre|gretap|ip6_vti|ip6gre|ip6tnl|ip_vti|sit|tunl)[0-9]*"
+    action        = "drop"
+  }
+
+  rule {
+    source_labels = ["container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["name"]
+    target_label  = "container"
+  }
+
+  rule {
+    regex  = "container_label_com_docker_compose_(project|service)"
+    action = "labeldrop"
+  }
+
+  // the instance is Alloy's hostname, a new one each time it's recreated - which would split every
+  // series in two
+  rule {
+    target_label = "instance"
+    replacement  = "alloy"
+  }
+}

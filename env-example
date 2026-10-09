@@ -1,0 +1,8 @@
+# [alloy]
+# Defaults live in this plugin's .env. ALLOY_PORT is the host port for Alloy's UI
+# (http://localhost:12345). Apps in the IDE send OpenTelemetry to alloy:4318 (HTTP) or
+# alloy:4317 (gRPC) - there are no OTLP host ports. DOCKER_SOCKET_GID is the group that owns the
+# Docker socket, found for you - set it only if log collection fails with permission denied.
+# Run `php my-sites-ide monitoring:alloy-start` after changing any of them.
+#ALLOY_PORT=12345
+#DOCKER_SOCKET_GID=0
